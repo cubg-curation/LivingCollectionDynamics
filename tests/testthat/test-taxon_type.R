@@ -1,0 +1,52 @@
+test_that("check taxon_type works", {
+  expect_equal(taxon_type("Astragalus sp."), '0.indet')
+  expect_equal(taxon_type("Mammillaria sp. f. cristata"), '0.indet')
+  # expect_equal(taxon_type("\xd7 Aridaria sp."), '0.indet')
+  expect_equal(taxon_type("Fritillaria sp. nov. 'Lemon-green, two-flowered'"), '0.indet')
+  expect_equal(taxon_type("Fuchsia spec. nov. fuchsia"), '0.indet')
+
+  expect_equal(taxon_type("Saxegothaea conspicua"), '1.species')
+
+  expect_equal(taxon_type("Rhododendron charitopes subsp. tsangpoense"), '2.subsp')
+
+  expect_equal(taxon_type("Rhododendron saluenense var. prostratum"), '3.var')
+  expect_equal(taxon_type("Schima wallichii subsp. noronhae var. superba"), '3.var')
+
+  expect_equal(taxon_type("Aquilegia flabellata f. alba"), '4.f')
+  expect_equal(taxon_type("Brassica oleracea var. capitata f. rubra"), '4.f')
+  expect_equal(taxon_type("Polemonium caeruleum subsp. caeruleum f. album"), '4.f')
+  expect_equal(taxon_type("Aquilegia flabellata subsp. alba var. alba f. alba"), '4.f')
+
+  expect_equal(taxon_type("Cordyline fruticosa cv."), '5.cultivar')
+  expect_equal(taxon_type("Ocimum basilicum 'CV'"), '5.cultivar')
+  expect_equal(taxon_type("Helleborus orientalis CV"), '5.cultivar')
+  expect_equal(taxon_type("Iris cv"), '5.cultivar')
+  expect_equal(taxon_type("Primula whitei 'Arduaire'"), '5.cultivar')
+  expect_equal(taxon_type("Zephyranthes mesochloa [white]"), '5.cultivar')
+  expect_equal(taxon_type("Chamaecyparis nootkatensis cv"), '5.cultivar')
+  expect_equal(taxon_type("Agapanthus [white form]"), '5.cultivar')
+
+  expect_equal(taxon_type("Abies hybrid"), '6.hybrid')
+  # expect_equal(taxon_type("Paphiopedilum \xd7 hybrid"), '6.hybrid')
+  # expect_equal(taxon_type("Disa \xd7 Hybrid"), '6.hybrid')
+  expect_equal(taxon_type("Philadelphus [HYBRID]"), '6.hybrid')
+  expect_equal(taxon_type("Echinacea tennesseensis ROCKY TOP HYBRIDS"), '6.hybrid')
+  expect_equal(taxon_type("Nepenthes Ventrata gx"), '6.hybrid')
+  # expect_equal(taxon_type("\xd7 Odontioda Keighleyensis gx"), '6.hybrid')
+  # expect_equal(taxon_type("\xd7 Anoectodes Charlotte's Web gx"), '6.hybrid')
+  expect_equal(taxon_type("Rhododendron gx Cilpinense"), '6.hybrid')
+  # expect_equal(taxon_type("Phragmipedium Grande gx \xd7 P. caudatum \xd7 P. longifolium"), '6.hybrid')
+
+  expect_equal(taxon_type("Tulipa (Darwin Hybrid Group) 'Lalibela'"), '5.cultivar, 6.hybrid')
+  expect_equal(taxon_type("Rhododendron 'James Russell' [Ciliiicalyx Hybrid]"), '5.cultivar, 6.hybrid')
+  expect_equal(taxon_type("Hemerocallis (Hybrida Group) 'Margaret Perry'"), '5.cultivar, 6.hybrid')
+  expect_equal(taxon_type("Rhododendron 'Scarlet Wonder' gx"), '5.cultivar, 6.hybrid')
+  expect_equal(taxon_type("Pleione gx Shantung 'Ridgeway'"), '5.cultivar, 6.hybrid')
+
+  expect_equal(taxon_type("Agastache rugosa f. albiflora 'Honey Bee White'"), "4.f, 5.cultivar")
+  # expect_equal(taxon_type("Erica \xd7 darleyensis f. albiflora 'White Perfection'"), "4.f, 5.cultivar, 6.hybrid")
+  # expect_equal(taxon_type("Iris meda f. protonyma \xd7 barnumiae"), "4.f, 6.hybrid")
+  expect_equal(taxon_type("Agapanthus inapertus subsp. intermedius 'Wolkberg'"), "2.subsp, 5.cultivar")
+  expect_equal(taxon_type("Rhododendron kiusianum f. benikomachi hort."), "4.f, 5.cultivar")
+  # expect_equal(taxon_type("Pachyphytum 'Clavata' \xd7 P. bracteosum \xd7 Echeveria sp."), "0.indet, 5.cultivar, 6.hybrid")
+})

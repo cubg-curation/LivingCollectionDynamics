@@ -1,0 +1,34 @@
+Package: LivingCollectionDynamics
+Title: Analyse Botanic Garden collections
+Version: 0.0.0.9000
+Authors@R: 
+    person("Jake", "Powell", , "jjp68@cam.ac.uk", role = c("aut", "cre"),
+           comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: What the package does (one paragraph).
+License: GPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.3
+Suggests: 
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0),
+    DT,
+    ggplot2,
+    viridis,
+    rWCVPdata
+Config/testthat/edition: 3
+Depends: 
+    R (>= 3.50)
+LazyData: true
+Imports: 
+    pbapply,
+    stringr,
+    taxize,
+    dplyr,
+    utils,
+    rlang,
+    cli,
+    stringi,
+    grDevices
+VignetteBuilder: knitr

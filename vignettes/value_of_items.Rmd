@@ -1,0 +1,224 @@
+---
+title: "Adding value to items in a collection"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Adding value to items in a collection}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LivingCollectionDynamics)
+```
+
+
+This vignette details how to give items in a collection a value dependent on multiple columns from it. This can be used to understand the importance of individual plants to a collection or to even give a collection a numeric score.
+
+Since the variables that determine the importance of plants in a collection depends heavily on the aim of it we  want to create a flexible value system. For example one collection may concentrate only on threatened species and does not care whether their plants are endemic. 
+
+Within LivingCollectionDynamics, we have `value_of_items()` which takes as input a `collection` and the so-called `dependents`. `dependents` contains the scoring system to obtain the value of items in the collection. In particular it is a list of lists, where each sub-list contains the how to generate a score from a single column in the collection. The score from a single column is a list that must contain:
+
+- `$column` the column in the `collection` we are generating a score from
+- `$weight` the weight of this score (multiplier), relative to other columns.
+- `$details` a data frame detailing the score for particular values found in the column. Where the values to match to the column are found in `names` and the score is contained in `value`.
+- `$type` The method for matching/finding entries in the column. Allowable values are `'Exact'`, `'Number range (int)'` and `'Grepl'`. 
+
+To understand what this means we shall go through an example below.
+
+***
+
+## Example
+
+We first need to load a collection.
+
+```{r}
+# Load a sample collection.
+load('data/value_of_items_collection_example.rda')
+```
+
+We want the value of items in our collection to depend on the provenance, endemism, rarity of taxa globally and whether items are threatened. 
+
+Each of these dependents are contained within the `collection`. So we need to create a "sub-list" outlined above for each. 
+
+- Provenance
+
+Within `collection` there is a column called `ProvenanceCode` which contains the values "G", "U", "W", "Z" corresponding to plants that are of garden origin, unknown origin, wild-derived origin and wild origin respectively. We value W > Z > G > U. Therefore we will give values:
+`W = 1`, `Z = 0.5`, `G = 0.1` and `U = 0`. For now we will give each column the same weight equal to one. Here we want to exactly match these codes to the values within `ProvenanceCode` so we set `type = 'Exact'`. 
+
+Within R this comes to 
+
+```{r}
+## Provenance.
+provenance = list(column = 'ProvenanceCode', weight = 1,
+                  details = data.frame(names = c("G", "U", "W", "Z"), value = c(0.1, 0, 1, 0.5)), type = 'Exact')
+provenance
+```
+
+- Endemism
+
+A plant is endemic if it comes from a single region. Currently, there is not a column within the collection stating whether the item is endemic or not. So will will have to create a new column to be able to use this as a scoring condition. Note that the column `POWO_Dist_000_area_code_l3` is a string of all the level 3 area codes that a plant is found in. Moreover, each code has length three (e.g. MLW, MOZ, ZIM). Therefore to extract the endemic items we need to search for records that have only a single code. In other words `POWO_Dist_000_area_code_l3` only has length three.
+
+```{r}
+## Endemism.
+collection$endemic = rep('Not endemic', nrow(collection))
+endemic_index = which(stringr::str_length(collection$POWO_Dist_000_area_code_l3) ==3)
+collection$endemic[endemic_index] = 'Endemic'
+
+endemism = list(column = 'endemic', weight = 1,
+                  details = data.frame(names = 'Endemic', value = 1), type = 'Exact')
+endemism
+```
+
+- Rarity of taxa globally
+
+The rarity is contained in the column `no_gardens` which givens the number of collections globally that a plant is found in. This is a value between 1 and `r max(collection$no_gardens, na.rm = T)`. We could give each number of gardens a value and have a large `details` data frame, however this would be a bit clumbersome. Therefore in this case we change to `type = 'Number range (int)'` where the names are now given in the format `XX:YY` specifying a range of numbers that have the same value.
+
+```{r}
+## 3) Rarity.
+rarity = list(column = 'no_gardens', weight = 1,
+                  details = data.frame(names = c('0:10', '11:50', '50:1000'), value = c(1,0.5,0.1)), type = 'Number range (int)')
+rarity
+```
+
+- Threatened
+
+```{r}
+
+## 4) Threatened.
+threatened = list(column = 'POWO_Red_category', weight = 1,
+                  details = data.frame(names = c('EW', 'CR', 'EN', 'VU', 'NT'), value = c(1, 0.9, 0.8, 0.7, 0.3)), type = 'Exact')
+threatened
+```
+
+
+So now we have all our individual scoring dependents we contain these into one list detailing the scoring system.
+
+```{r}
+## Combine.
+dependents = list(provenance = provenance, endemism  = endemism, rarity = rarity, threatened = threatened)
+
+```
+
+We can now use `dependents` as an input to `value_of_items()` to calculate the value of each item in the collection.
+
+```{r}
+values = LivingCollectionDynamics::value_of_items(collection, dependents)
+
+# Show total value of first 10 items.
+values$total_value[1:10]
+
+# Show breakdown of value for first 10 items
+values$value_breakdown[1:10,]
+```
+
+We can then add the value to the collection to be used in further analysis
+
+```{r}
+collection$value = values$total_value
+```
+
+We can then use this to find the items in the collection with the largest value.
+```{r}
+top100_index = rev(order(collection$value))[1:100]
+top100_value = collection[top100_index,]
+```
+
+```{r, echo = FALSE}
+DT::datatable(top100_value, rownames = FALSE, options = list(scrollX = TRUE,pageLength = 5))
+```
+
+***
+
+### Examples of other value conditions
+
+Above we gave an example of giving items a value on provenance, endemism, rarity of taxa globally and whether items are threatened. In this section we will give other examples of conditions that can be used when giving items a value.
+
+#### Value on a particualar native location.
+
+We might want to give value to items that are native to the location of the collection. For example if our collection is in Great Britain then we could use the following:
+
+```{r}
+native_GB = list(column = 'POWO_Dist_000_area_code_l3', weight = 1,
+                  details = data.frame(names = c('GBR'), value = c(1)), type = 'Grepl')
+native_GB
+```
+
+We use `type = 'Grepl'` as this allows pattern searching within the column of interest. In this case, if the code `GBR` is found in the string of level 3 area codes that a plant is distributed then they will gain a value of 1 otherwise no value is added.
+
+#### Value on rarity within the collection
+
+We will need to create a new column of the number of items in the collection that are the same.
+
+```{r}
+# Assume we can use taxon name (i.e the collection doesn't have records with identical taxon name and differing authors)
+# Get the taxon name from POWO if matched otherwise use the original name in the collection
+taxon_name = collection$POWO_taxon_name
+taxon_name[is.na(taxon_name)] = collection$TaxonName[is.na(taxon_name)]
+
+# Get the number of occurrences in the collection and add as `collection$count_in_collection`.
+taxon_name_count = data.frame(table(taxon_name))
+count_in_collection = taxon_name_count$Freq[match(taxon_name, as.character(taxon_name_count$taxon_name))]
+collection$count_in_collection = count_in_collection
+```
+
+We can now use this column as a value condition
+
+```{r}
+number_in_collection = list(column = 'count_in_collection', weight = 1,
+                  details = data.frame(names = c('1', '2:3', '4:8'), value = c(1, 0.5, 0.2)), type = 'Number range (int)')
+number_in_collection
+```
+
+#### Discount cultivars.
+
+Perhaps we do not like cultivars.
+
+```{r}
+dislike_cultivars = list(column = 'infrageneric_level', weight = 1,
+                  details = data.frame(names = c('cultivar'), value = c(-1)), type = 'Grepl')
+dislike_cultivars
+```
+
+#### Value for finding a match to POWO.
+
+Perhaps we want to add value if the item was found in POWO.
+
+```{r}
+# Add column `in_POWO` with the detail required.
+in_POWO = rep('No', nrow(collection))
+in_POWO[!is.na(collection$POWO_powo_id)] = 'Yes'
+collection$in_POWO = in_POWO
+
+# Create dependent.
+item_in_POWO = list(column = 'in_POWO', weight = 1,
+                  details = data.frame(names = c('Yes'), value = c(1)), type = 'Exact')
+item_in_POWO
+```
+
+#### Value for a continuous numeric column
+
+Suppose we want to gives values for a column that has non-whole number values. Then we can use the type = 'Number range'. Note that this has the same range format as `'Number range (int)'`, namely XX:YY. The matching condition is now where elements E are between XX and YY by $E \geq XX \text{ and } E \leq YY$.
+
+
+We give an example below where we first create a fake column of data by sampling from the standard uniform distribution.
+
+```{r}
+# Create and add the new_column to the collection.
+new_column = runif(nrow(collection))
+collection$new_column = new_column
+
+# Show the first 10 values of the new column.
+collection$new_column[1:10]
+
+# Create dependent.
+non_integer_score = list(column = 'new_column', weight = 1,
+                  details = data.frame(names = c('0:0.25', '0.25:0.75','0.75:1'), value = c(1, 0.5, 0.1)), type = 'Number range')
+non_integer_score
+```

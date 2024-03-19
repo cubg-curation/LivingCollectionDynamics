@@ -1,0 +1,642 @@
+---
+title: "Enrichement databases"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Enrichement databases}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(LivingCollectionDynamics)
+```
+
+*This vignette is to show how to create enrichment data frames in R, used to enrich plant information within collections. Within LivingCollectionDynamics we have pre-written methods to create data frames from World Checklist of Vascular Plants and IUCN's red list and functions to prepare any data set ready for taxonomic matching. *
+
+Note that creating enrichment data frames can be a rather slow process. So once you've created the data it's best to save it and load it when required. Then maybe once a year re-create the enrichment data frames in case there have been any changes (such as new threatened plants, changes in accepted names, etc).
+
+## Preparing a data set for taxonomic matching
+
+In this section we describe how to prepare a data ready for matching to your collection via taxonomic matching. Initially you need some data that you want to use to enrich your collection with. This data is commonly contained with `.csv` files. So first you need to use your favourite method for loading the data into R as a data frame (not a tibble). 
+
+As an example we load a list of trees obtained from BGCI's Global Tree Search.
+
+```{r, eval = F}
+# This link may become invalid over time. See https://tools.bgci.org/global_tree_search.php for newer link if needed.
+BGCI_trees <- read.csv(url('https://tools.bgci.org/global_tree_search_trees_1_7.csv'))[,1:2]
+names(BGCI_trees) = c('taxon_names', 'taxon_author')
+BGCI_trees$is_tree = rep(T, nrow(BGCI_trees)) # Add column stating each record is a tree.
+```
+
+Note that for taxonomic name matching the data requires taxonomic names (preferably taxonomic authors too!). In the above example we rename the columns such that the taxonomic names and authority are contained in `taxon_names` and `taxon_authors`, respectively. 
+
+After loading the data into R we need to prepare it for the matching algorithm. We do this using `prepare_enrich_database()`.
+
+```{r,eval = FALSE}
+BGCI_trees = LivingCollectionDynamics::prepare_enrich_database(BGCI_trees,
+                                  enrich_taxon_name_column = 'taxon_names',
+                                  enrich_taxon_authors_column = 'taxon_author',
+                                  console_message = TRUE)
+```
+
+This adds additional columns used in the matching algorithm such as `sanitise_name` and `sanitise_author` which 'cleans' the taxonomic name and authority ready to be matched to the collection. For further details see the function's documentation.
+
+Now the data is prepared we could perform taxonomic matching via `match_collection_to_enrich_database()`. Here, we go directly to enriching the collection (more likely what you would do) via `enrich_collection_from_enrich_database()`.
+
+
+```{r, eval = FALSE}
+### Load in a collection
+load('data/value_of_items_collection_example.rda')
+collection = collection[,1:2] 
+
+### Enrich the collection with trees
+enriched_collection = LivingCollectionDynamics::enrich_collection_from_enrich_database(
+  collection,
+  enrich_database = BGCI_trees,
+  taxon_name_column = 'TaxonName',
+  taxon_name_full_column = 'TaxonNameFull',
+  enrich_taxon_name_column = 'sanitise_name',
+  enrich_taxon_authors_column = 'sanitise_author',
+  columns_to_enrich = 'is_tree'
+  )
+```
+
+We can see that for the function to work we need to input the `collection` together with the column names in `collection` that correspond to the taxonomic names (`taxon_name_column`) and the taxonomic name and author (`taxon_name_full_column`). We also need the enriched data (`enrich_database`) together with the column names within it for the taxonomic name (`enrich_taxon_name_column`) and authors (`enrich_taxon_authors_column`). Finally we need to choose the columns in the enriched data to add to the collection (`columns_to_enrich`). 
+
+
+This is a simple example of enriching a collection with tree information. See `enrich_collection_from_enrich_database()`'s documentation for further details, such as selecting parts of the matching algorithm you want to use. Moreover, see `Case Study: Trees in a collection` to see how we can improve enrichment by utilising multiple enrichment data sources (i.e. matching trees to WCVP to find further names of trees) and specific data preparation (only using Genus and Species rather then full taxonomic name). 
+
+***
+
+## Creating WCVP data frame ready for matching
+
+WCVP is an excellent resource for retrieving geographic distribution information or taxonomic standardisation of plant records. Therefore, we have written a specific method for loading and preparing this data for LivingCollectionDynamics matching algorithms.
+
+WCVP can be downloaded directly from [Plants of the World Online](https://powo.science.kew.org) via the data tab, or you can use the `rWCVPData` package. WCVP is split into two parts `wcvp_names` and `wcvp_distribution` we shall deal with these two parts separately. 
+
+To load `wcvp_names` we use `import_wcvp_names()`.
+
+```{r, eval = FALSE}
+wcvp = import_wcvp_names(use_rWCVPdata = TRUE)
+```
+
+This function will load the data to R and prepare the data ready to be matched using LivingCollectionDynamics. It will also:
+
+- Update the author of autonyms to the base Genus Species. Within `wcvp_names` autonyms often do not contain taxonomic authors needed for taxonomic matching so we add this to these records.
+
+- Sometimes the downloaded data contains records that are synonyms without providing the corresponding accepted taxonomic name, where POWO does link to the accepted name. Therefore, we check for these issues and update the accepted plant when required. The accepted name is found using the function `get_accepted_plant()`.
+
+- Prior to matching we remove items from a collection that are cultivars (contains certain patterns in the taxonomic name) as these are not found in WCVP. However, we check for exceptions of these patterns within WCVP that we need to match to. For example WCVP contains [Conioselinum anthriscoides 'chuanxiong'](https://powo.science.kew.org/taxon/urn:lsid:ipni.org:names:77221902-1) which contains `' '` which is associated with cultivars. 
+
+- Sometimes in the taxonomic name there are issues with infraspecific markers where we find `[**]` instead of forma and `[*]` instead of variety (Version 10 of WCVP).
+
+These issues may be fixed in newer versions of WCVP but we leave the methods in tact to perform checks. 
+
+The result of `import_wcvp_names` is a list containing:
+
+- `$wcvp_names` a data frame containing the prepared wcvp_names with the fixes outlined above. 
+- `$exceptions` a data frame containing a subsection of the prepared wcvp_names containing the exceptions to cultivars and indeterminates.
+- `$changes` a data frame detailing the changes made to wcvp_names.
+
+To add the distribution information we use `add_wcvp_distributions()`.
+
+```{r, eval = FALSE}
+wcvp = add_wcvp_distributions(use_rWCVPdata = TRUE, wcvp = wcvp)
+```
+
+This adjoins a new item to the `wcvp` list called `$geography`, which contains the plant name identifiers that match to `wcvp$wcvp_names` together with the level 3 [TDWG geographical codes](https://powo.science.kew.org/about-wcvp#geographicaldistribution) for each plant. The codes are contained in 7 columns with name of the form `Dist_XYZ_area_code_l3` where:
+
+- `XYZ = 000`:  Native, not extinct and not doubtful locations.
+- `XYZ = 010`:  Native, extinct and not doubtful locations.
+- `XYZ = 001`:  Native, not extinct and doubtful locations.
+- `XYZ = 011`:  Native, extinct and doubtful locations.
+- `XYZ = 100`:  Introduced, not extinct and not doubtful locations.
+- `XYZ = 110`:  Introduced, extinct and not doubtful locations.
+- `XYZ = 101`:  Introduced, not extinct and doubtful locations.
+
+
+We also add the column `Dist_000_labels` which uses the native, not extinct and not doubtful locations to create simple geographic labels (using `generate_labels()`).
+
+To enrich a collection with information from WCVP we use `enrich_collection()` which allows enriching from WCVP, ICUN redlist and BGCI's plant, as well as extracting information from the collection. 
+
+To enrich only wcvp information we can run
+
+```{r, eval = FALSE}
+enriched_collection = enrich_collection(collection,
+                          wcvp = wcvp,
+                          iucnRedlist = NA,
+                          BGCI = NA,
+                          taxon_name_column = 'TaxonName',
+                          taxon_name_full_column = 'TaxonNameFull',
+                          taxon_author_column = NA)
+```
+
+This has similar inputs to `enrich_collection_from_enrich_database()` however we do not need to specify enrichment specific columns. For further information see the function's documentation. The columns you want to enrich from WCVP can be altered using the input `wcvp_wanted_info`.
+
+It may be advantageous to enrich the WCVP database with matches to IUCN's redlist directly to get the threatened status of records in WCVP. This may be helpful to determine if updating to the accepted name will affect the threatened status of taxa. 
+
+We show how to do this below where we only try to match accepted (or those without an accepted name) records within WCVP:
+
+```{r, eval = FALSE}
+### Assume we have loaded into the environment:
+### wcvp database "wcvp"
+### IUCN red list database "IUCN_redlist"
+
+# 1) Reduce to wcvp_names (we don't need geography information)
+wcvp_names = wcvp$wcvp_names
+
+# 2) Find the records that are accepted names or do not have an accepted name.
+wanted_index = c(which(wcvp_names$plant_name_id %in% unique(wcvp_names$accepted_plant_name_id)),
+                 which(is.na(wcvp_names$accepted_plant_name_id)))
+
+# 3) Create a 'collection' from wcvp_names of the taxonomic names and authors we want to match to IUCN redlist.
+wcvp_care = data.frame(plant_name_id = wcvp_names$plant_name_id[wanted_index],
+                       taxon_name = wcvp_names$taxon_name[wanted_index],
+                       taxon_author = wcvp_names$taxon_authors[wanted_index])
+
+# 4) Match to red list.
+match_details = LivingCollectionDynamics::match_collection_to_iucnRedlist(collection = wcvp_care,
+                                                          iucnRedlist = IUCN_redlist,
+                                          taxon_name_column = 'taxon_name',
+                                          taxon_author_column = 'taxon_author')
+
+# 5) Create Red_info containing the IUCN red list information for the matches to wcvp_care.
+Red_info = data.frame(matrix(NA, nrow = nrow(wcvp_care), ncol = ncol(IUCN_redlist)))
+have_match = which(match_details$match>0)
+Red_info[have_match,] = IUCN_redlist[match_details$match[have_match],]
+names(Red_info) = names(IUCN_redlist)
+
+# 6) Create a data frame of the matched red list information together with matching information.
+wcvp_red = data.frame(wcvp_care,  # The plant name id, taxonomic name and author from wcvp.
+                      details = match_details$details,
+                      details_short = match_details$details_short,
+                      match_taxon_name = match_details$match_taxon_name,
+                      original_authors = match_details$original_authors,
+                      match_authors = match_details$match_authors,
+                      author_check = match_details$author_check,
+                      Red_info  
+                      )
+
+# 7) Remove those when a match isn't found (i.e red list category = NA)
+wcvp_red = wcvp_red[!is.na(wcvp_red$category),]
+
+# 8) Add to wcvp as the item `redList`.
+wcvp$redList = wcvp_red
+
+# Finished ready for matching. 
+```
+
+`enrich_collection()` is in-built to check whether `wcvp` contains `$redList` and to enrich information from it, if provided.
+
+***
+
+## Creating IUCN redlist ready for matching
+
+IUCN redlist is the resource for retrieving the most up-to-date threatened status of items in your collection. 
+
+To obtain the full IUCN red list database we use the `rredlist` package. To use this package you will need to obtain a key/token to be able to use the API ([see here](https://apiv3.iucnredlist.org/api/v3/docs)). 
+
+To load and prepare the data we use
+
+```{r, eval = FALSE}
+# 1) Enter your redlist key.
+key = "//KEY\\"
+
+# 2) Use `rl_sp` function to get all records from red list
+# (code taken from the documentation)
+out <- rredlist::rl_sp(all = TRUE, key=key)
+length(out)
+vapply(out, "[[", 1, "count")
+all_df <- do.call(rbind, lapply(out, "[[", "result"))
+
+# 3) Restrict to only plants.
+IUCN_redlist = all_df[all_df$kingdom_name == "PLANTAE",]
+
+# 4) Prepare the data.
+IUCN_redlist = LivingCollectionDynamics::prepare_enrich_database(enrich_database = IUCN_redlist,
+                                  enrich_taxon_name_column = 'scientific_name',
+                                  enrich_taxon_authors_column = 'taxonomic_authority',
+                                  do_add_id = FALSE,
+                                  console_message = TRUE)
+
+```
+
+The method outlined above will provide most fields found from IUCN red list's website, such as the `category`, `main_common_name` and `population`. However, it does not include information such as the published_year, assessment_date, criteria, etc. 
+
+If this additional information is wanted loop over all the taxonomic names found above with the function `rredlist::rl_search()` which will retrieve extra information. Note that this approach is very slow (If there is a better way to do this please let us know).
+
+To enrich to only IUCN red list information we can run
+
+```{r, eval = FALSE}
+enriched_collection = enrich_collection(collection,
+                          wcvp = NA,
+                          iucnRedlist = IUCN_redlist,
+                          BGCI = NA,
+                          taxon_name_column = 'TaxonName',
+                          taxon_name_full_column = 'TaxonNameFull',
+                          taxon_author_column = NA)
+```
+
+This is similar to enriching with WCVP only.
+
+
+Note that you can enrich to both WCVP and IUCN red list at once rather then separately by having inputs for both `wcvp` and `iucnRedlist`.
+
+***
+
+## Creating BGCI plant search ready for matching
+
+BGCI's plant search can be used to find the number of collections globally that hold particular taxa, which can be beneficial for identifying plants in a collection that are found rarely globally. 
+
+It is currently not possible to download a full data set of taxa and the number of collections they are found in, However it is possible to search the data set ([see here](https://plantsearch.bgci.org/)).
+
+As we are able to search the data set we are able to scrape the resultant table from searches, this gives us a way to get extracts of the data set into R. 
+
+One way of performing the scraping is by utilising the `RSelenium` package. For an introduction into the package and setting it up you can use videos created by Samer Hijjazi ([click here](https://www.youtube.com/@SamerHijjazi)). 
+
+Below we provide an example of scraping information for three families from BGCI plant search:
+
+```{r, eval = F}
+## choose some families we want to extract the records for.
+families = c('Canellaceae', 'Phyllanthaceae', 'Phytolaccaceae')
+
+# Function to web scrape from BGCI plant search with a variety of search elements allowed.
+extract_search_BGCI_plant_search <- function(family = NA,
+                                             genus = NA,
+                                             specific_epithet = NA,
+                                             infraspecific_epithet = NA,
+                                             exclude_synonyms = FALSE,
+                                             hybrid_status = '',
+                                             cultivar_status = '',
+                                             cultivar = NA,
+                                             grex = NA,
+                                             germplasm_type = NA,
+                                             RSelenium_server = NA,
+                                             try_over_1000 = TRUE){
+  # Function to try and find the number of gardens from the webpage.
+  try_find_no_gardens <- function(){
+    out <- tryCatch(
+      {
+        no_found = rmDr$findElement(using = 'xpath', '//*[@id="app"]/div/div/main/div/div/div[2]/div/div/div/div[1]/div[1]/div[1]/div/p')
+        number_found = as.numeric(stringr::str_remove(stringr::str_split(no_found$getElementText()[[1]], ' ')[[1]][1], ','))
+      },
+      error=function(cond) {
+        message(paste("doesn't need closing:"))
+        return(NA)
+      },
+      warning=function(cond) {
+        message("Here's the original warning message:")
+        message(cond)
+        return(NULL)
+      },
+      finally={
+      }
+    )    
+    return(out)
+  }
+  
+  
+  ### The function will only work is an RSelenium server is already active.
+  suppressWarnings(
+    if(is.na(RSelenium_server)){
+      stop('Require active RSelenium server!')
+    }
+  )
+  # assume browser is already open
+  rmDr = RSelenium_server
+  
+  
+  #### 1) We first need to create the web address with the search.
+  address = 'https://plantsearch.bgci.org/search?'
+  
+  if(!is.na(genus)){
+    address = paste0(address,'filter[genus]=',genus,'&', collapse ='')
+  }
+  if(!is.na(specific_epithet)){
+    address = paste0(address,'filter[specific_epithet]=',specific_epithet,'&', collapse ='')
+  }
+  if(!is.na(infraspecific_epithet)){
+    address = paste0(address,'filter[infraspecific_epithet]=',infraspecific_epithet,'&', collapse ='')
+  }
+  if(!is.na(family)){
+    address = paste0(address,'filter[family]=',family,'&', collapse ='')
+  }
+  if(exclude_synonyms == T){
+    address = paste0(address,'filter[exclude_synonyms]=exclude&', collapse ='')
+  }
+  if(hybrid_status == 'show only'){
+    address = paste0(address,'filter[hybrid_status]=only&', collapse ='')
+  }
+  if(hybrid_status == 'exclude'){
+    address = paste0(address,'filter[hybrid_status]=exclude&', collapse ='')
+  }
+  if(cultivar_status == 'show only'){
+    address = paste0(address,'filter[cultivar_status]=only&', collapse ='')
+  }
+  if(cultivar_status == 'exclude'){
+    address = paste0(address,'filter[cultivar_status]=exclude&', collapse ='')
+  }
+  if(!is.na(cultivar)){
+    address = paste0(address,'filter[cultivar]=',cultivar,'&', collapse ='')
+  }
+  if(!is.na(grex)){
+    address = paste0(address,'filter[grex]=',grex,'&', collapse ='')
+  }
+  if(!is.na(germplasm_type)){
+    address = paste0(address,'filter[germplasm_type]=',germplasm_type,'&', collapse ='')
+  }
+  address = paste0(address, 'sort=name')
+  
+  # navigate to the webpage.
+  rmDr$navigate(address)
+  
+  
+  # Find out how mant records the search yields, by keep trying to use try_find_no_gardens().
+  Sys.sleep(2)
+  found_number_of_gardens = FALSE
+  while(!found_number_of_gardens){
+    number_found = try_find_no_gardens()
+    if(!is.na(number_found)){
+      found_number_of_gardens = TRUE
+    }else{
+      Sys.sleep(1)
+    }
+  }
+  
+  # Extract the table dependent on the number of items found.
+  if(number_found == 0){
+    df = data.frame(t(data.frame(row.names = c('Taxonomic Name and Autority', 'Family','Name Status', '# of Ex Situ Sites'))))
+    names(df) = c('Taxonomic Name and Autority', 'Family','Name Status', '# of Ex Situ Sites')
+    
+    return(list(number_found = number_found, table = df))
+    
+  }
+  if(number_found >= 1000 & !try_over_1000){
+    df = data.frame(t(data.frame(row.names = c('Taxonomic Name and Autority', 'Family','Name Status', '# of Ex Situ Sites'))))
+    names(df) = c('Taxonomic Name and Autority', 'Family','Name Status', '# of Ex Situ Sites')
+    
+    return(list(number_found = number_found, table = df))
+  }
+  if(number_found <= 500 & number_found > 0){
+    
+    # if we have 101-500 records we need to scroll down the table.
+    if(number_found > 100 & number_found < 501){
+      # First we need to scroll to the bottom of the table to load all the values.
+      to_load = c(101,201,301,401)
+      for(number in to_load[to_load <= number_found]){
+        last_element_table = rmDr$findElement(using = 'xpath', paste0('//*[@id="app"]/div/div/main/div/div/div[2]/div/div[2]/table/tbody/tr[',number,']'))
+        Sys.sleep(2)
+        last_element_table$clickElement()
+        Sys.sleep(4)
+      }
+      
+    }
+    
+    # Get the table from the website (for all locations)
+    data_table = rmDr$findElement(using = 'xpath','//*[@id="app"]/div/div/main/div/div/div[2]/div/div[2]/table')
+    
+    # Extract table into R.
+    data_table_html <- data_table$getPageSource()
+    page <- rvest::read_html(data_table_html |> unlist())
+    df <- as.data.frame(rvest::html_table(page)[[1]])
+    names(df) = c('Taxonomic Name and Autority', 'Family','Name Status', '# of Ex Situ Sites')
+    
+  }
+  if(number_found > 500){
+    
+    
+    #Sort via taxon name and rip out the data twice.
+    
+    address_sortAZ = address
+    address_sortZA = stringr::str_replace(address, '&sort=name', '&sort=-name')
+    
+    rmDr$navigate(address_sortAZ)
+    
+    # Go to sleep to allow the table to load.
+    Sys.sleep(8)
+    
+    # First we need to scroll to the bottom of the table to load all the values.
+    to_load = c(101,201,301,401)
+    for(number in to_load){
+      last_element_table = rmDr$findElement(using = 'xpath', paste0('//*[@id="app"]/div/div/main/div/div/div[2]/div/div[2]/table/tbody/tr[',number,']'))
+      Sys.sleep(2)
+      last_element_table$clickElement()
+      Sys.sleep(6)
+    }
+    
+    # Get the table from the website (for all locations)
+    data_table = rmDr$findElement(using = 'xpath','//*[@id="app"]/div/div/main/div/div/div[2]/div/div[2]/table')
+    
+    # Extract table into R.
+    data_table_html <- data_table$getPageSource()
+    page <- rvest::read_html(data_table_html |> unlist())
+    df1 <- as.data.frame(rvest::html_table(page)[[1]])
+    df1 = df1[-nrow(df1),1:4]
+    names(df1) = letters[1:4]
+    
+    # 2) Extract table alphabetical decreasing
+    rmDr$navigate(address_sortZA)
+    
+    # Go to sleep to allow the table to load.
+    Sys.sleep(8)
+    
+    # First we need to scroll to the bottom of the table to load all the values.
+    to_load = c(101,201,301,401)
+    for(number in to_load){
+      last_element_table = rmDr$findElement(using = 'xpath', paste0('//*[@id="app"]/div/div/main/div/div/div[2]/div/div[2]/table/tbody/tr[',number,']'))
+      Sys.sleep(2)
+      last_element_table$clickElement()
+      Sys.sleep(6)
+    }
+    
+    # Get the table from the website (for all locations)
+    data_table = rmDr$findElement(using = 'xpath','//*[@id="app"]/div/div/main/div/div/div[2]/div/div[2]/table')
+    
+    # Extract table into R.
+    data_table_html <- data_table$getPageSource()
+    page <- rvest::read_html(data_table_html |> unlist())
+    df2 <- as.data.frame(rvest::html_table(page)[[1]])
+    df2 = df2[-nrow(df2),1:4]
+    names(df2) = letters[1:4]
+    
+    
+    df = rbind(df1, df2)
+    df = unique(df)
+    names(df) = c('Taxonomic Name and Autority', 'Family','Name Status', '# of Ex Situ Sites')
+  }
+  
+  
+  # return a list of the number of items found and the table (of max 1000 items).
+  
+  return(list(number_found = number_found, table = df))
+}
+
+# Load some libraries.
+library(RSelenium)
+library(wdman)
+library(netstat)
+
+
+# Open Selenium server (change to whatever chrome version you're using)
+remote_driver = rsDriver(browser = 'chrome',
+                         chromever = '119.0.6045.105',
+                         verbose = F,
+                         port = netstat::free_port(),
+)
+rmDr = remote_driver$client
+
+# open a browser
+rmDr$open()
+rmDr$maxWindowSize() # set to max window size so that the table shows.
+
+# Create stores for the web scraping.
+BGCI_plant_search = NULL 
+family_size = NULL
+
+### Need to loop over all families and extract the records we want. 
+for(i in 1:length(families)){
+  family = families[i]
+  print(paste0(i, ': ', family))
+  save(BGCI_plant_search, file = 'data_current.rda')
+
+  # First let's try and get the whole family in one go.
+  family_data = extract_search_BGCI_plant_search(family = family, RSelenium_server = rmDr, try_over_1000 = FALSE,
+                                                 cultivar_status = 'exclude', germplasm_type = 'plant')
+  print(paste0(i, ': ', family, '   found = ', family_data$number_found))
+  family_size = rbind(family_size, c(family,family_data$number_found))
+  if(family_data$number_found <= 1000){
+    BGCI_plant_search = rbind(BGCI_plant_search, family_data$table)
+    next
+  }
+  
+  if(family_data$number_found > 1000){
+    #Loop over each letter of the alpha bet.
+    current_family_data = NULL
+    issue_letters = NULL
+    for(letter in LETTERS){
+      data_cur = extract_search_BGCI_plant_search(family = family, genus = letter, RSelenium_server = rmDr, try_over_1000 = FALSE, cultivar_status = 'exclude')
+      print(paste0(letter,': ', data_cur$number_found))
+      if(data_cur$number_found > 1000){
+        issue_letters = c(issue_letters, letter)
+      }
+      else{
+        current_family_data = rbind(current_family_data, data_cur$table)
+      }
+    }
+    
+    issue_letters2 = NULL
+    if(length(issue_letters) > 0){
+      for(issue_letter in issue_letters){
+        for(letter in LETTERS){
+          data_cur = extract_search_BGCI_plant_search(family = family, genus = issue_letter, specific_epithet = letter, RSelenium_server = rmDr, try_over_1000 = FALSE, cultivar_status = 'exclude')
+          print(paste0(issue_letter,' and ',letter, ':  ', data_cur$number_found))
+          if(data_cur$number_found > 1000){
+            issue_letters2 = c(issue_letters2, paste0(issue_letter, ' ', letter))
+          }
+          else{
+            current_family_data = rbind(current_family_data, data_cur$table)
+          }
+        }
+      }
+      if(length(issue_letters2) > 0){
+        warnings(paste0('For ', family, ' we have more than 1000 for ', issue_letters2))
+        
+      }
+    }
+   
+    
+    BGCI_plant_search = rbind(BGCI_plant_search, current_family_data)
+    
+  }
+}
+
+remote_driver$server$stop()
+
+# We have now web scraped the families we want into the variable `BGCI_plant_search`.
+```
+
+**_NOTE:_** web scraping can be used for creating enrichment data from many online taxonomic resources. 
+
+Once we have obtained the data we want to format it ready to be matched via LivingCollectionDynamics. 
+
+We can do this by running the following:
+
+```{r, eval = FALSE}
+# Want to split taxonomic name and authority up into parts.  We do this via the spacing between words and capital letter search.
+taxon_parts = data.frame(t(data.frame(pbapply::pblapply(BGCI_plant_search$`Taxonomic Name and Autority`, function(x){
+  # 1) If we can split on 5 space or 4 space and get two parts take the first part.
+  split_5space = stringr::str_split(x, '     ')[[1]] |> stringr::str_squish()
+  if(length(split_5space) == 2){
+    return(split_5space)
+  }
+  if(length(split_5space) > 2){
+    # find the words with capital letters
+    start_authority =which(grepl('[A-Z]', split_5space))[-1][1]
+    taxon_name = paste0(split_5space[1:(start_authority-1)], collapse = ' ') |> stringr::str_squish()
+    taxon_author = paste0(split_5space[start_authority:length(split_5space)], collapse = ' ') |> stringr::str_squish()
+    return(c(taxon_name, taxon_author))
+  }
+  
+  split_4space = stringr::str_split(x, '    ')[[1]]
+  if(length(split_4space) == 2){
+    return(split_4space)
+  }
+  if(length(split_4space) > 2){
+    # find the words with capital letters
+    start_authority =which(grepl('[A-Z]', split_4space))[-1][1]
+    taxon_name = paste0(split_4space[1:(start_authority-1)], collapse = ' ') |> stringr::str_squish()
+    taxon_author = paste0(split_4space[start_authority:length(split_4space)], collapse = ' ') |> stringr::str_squish()
+    return(c(taxon_name, taxon_author))
+  }
+  
+  split_3space = stringr::str_split(x, '   ')[[1]]
+  if(length(split_3space) == 2){
+    return(split_3space)
+  }
+  if(length(split_3space) > 2){
+    # find the words with capital letters
+    start_authority =which(grepl('[A-Z]', split_3space))[-1][1]
+    taxon_name = paste0(split_3space[1:(start_authority-1)], collapse = ' ') |> stringr::str_squish()
+    taxon_author = paste0(split_3space[start_authority:length(split_3space)], collapse = ' ') |> stringr::str_squish()
+    return(c(taxon_name, taxon_author))
+  }
+  
+  
+  # If we get to this stage we assume there are no authors and therefore return (x,'')
+  
+  return(c(x,''))
+    }))))
+rownames(taxon_parts) = 1:nrow(taxon_parts)
+
+# squish the taxon name and author to remove excess whitespace.
+names(taxon_parts) = c('taxon_name', 'taxon_author')
+taxon_parts$taxon_name = stringr::str_squish(taxon_parts$taxon_name)
+taxon_parts$taxon_author = stringr::str_squish(taxon_parts$taxon_author)
+
+# Join the taxonomic name and author to the extracted BGCI plant search and rename/reorder columns.
+BGCI_plant_search = data.frame(BGCI_plant_search,taxon_parts)
+names(BGCI_plant_search) = c('taxon_name_full', 'family', 'name_status', 'no_gardens', 'taxon_names', 'taxon_authors')
+BGCI_plant_search = BGCI_plant_search[,c(1,5,6,2,3,4)]
+# Remove excess whitespace from the extracted combined taxonomic name and author.
+BGCI_plant_search$taxon_name_full = BGCI_plant_search$taxon_name_full |> stringr::str_squish()
+
+# Run enrichement database preparation on BGCI plant search data set.
+BGCI_plant_search = LivingCollectionDynamics::prepare_enrich_database(BGCI_plant_search,
+                                  enrich_taxon_name_column = 'taxon_names',
+                                  enrich_taxon_authors_column = 'taxon_authors',
+                                  do_sort = FALSE,
+                                  console_message = T
+                                  )
+
+# We now have `BGCI_plant_search` ready to be matched.
+```
+
+
+***
